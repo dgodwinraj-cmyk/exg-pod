@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ExG Pod</title>
+<meta name="theme-color" content="#0f172a">
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #111827; --muted: #6b7280; --line: #e5e7eb;
+  --accent: #2563eb; --accent-ink: #ffffff; --trace: #2563eb; --trace2: #ea580c; --grid: #eef0f3;
+  --ok: #15803d; --warn: #b45309; --bad: #b91c1c; --chip: #eef2ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1020; --panel: #121a2e; --ink: #e5e7eb; --muted: #94a3b8; --line: #23304d;
+    --accent: #60a5fa; --accent-ink: #0b1020; --trace: #60a5fa; --trace2: #fb923c; --grid: #1a2440;
+    --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --chip: #1e2a4a;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 900px; margin: 0 auto; padding: 12px 16px 32px; }
+header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0; flex: 1; letter-spacing: -0.01em; }
+.status { font-size: 13px; color: var(--muted); }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
+.dot.on { background: var(--ok); }
+button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  border-radius: 10px; padding: 8px 14px; cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: 0.45; cursor: default; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+.seg button { border: 0; border-radius: 0; flex: 1; padding: 9px 4px; }
+.seg button.active { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.row .seg { flex: 1 1 260px; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; user-select: none; }
+.toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-top: 12px; }
+.plotwrap { position: relative; height: 260px; }
+canvas { width: 100%; height: 100%; display: block; }
+.plotbar { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); margin-bottom: 6px; gap: 8px; flex-wrap: wrap; }
+.plotbar .zoom button { padding: 2px 10px; }
+.warnbox { display: none; margin-top: 8px; padding: 8px 10px; border-radius: 10px; font-size: 14px;
+  background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.warnbox.show { display: block; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.metric { padding: 6px 2px; }
+.metric .k { font-size: 13px; color: var(--muted); }
+.metric .v { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.metric .v small { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 3px; }
+.bars { margin-top: 6px; }
+.bar { display: grid; grid-template-columns: 84px 1fr 48px; gap: 8px; align-items: center; font-size: 13px; margin: 5px 0; }
+.bar .track { height: 12px; border-radius: 6px; background: var(--grid); overflow: hidden; }
+.bar .fill { height: 100%; width: 0; background: var(--accent); border-radius: 6px; transition: width 0.25s; }
+.bar .fill.alpha { background: var(--ok); }
+.bar .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.stats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; font-variant-numeric: tabular-nums; }
+.note { font-size: 13px; color: var(--muted); }
+.stats .low { color: var(--warn, #b45309); font-weight: 600; }
+.hidden { display: none !important; }
+.unsupported { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); border-radius: 12px; padding: 10px 12px; margin-top: 12px; font-size: 14px; }
+.rec { color: var(--bad); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>ExG Pod</h1>
+    <span class="status"><span id="dot" class="dot"></span><span id="conn">Not connected</span></span>
+    <button id="btnConnect" class="primary">Connect</button>
+  </header>
+
+  <div id="unsupported" class="unsupported hidden">
+    This browser has no Web Bluetooth. Use Chrome on Android, Windows, macOS or Linux (or Edge).
+    On an iPhone, open this page in the free <b>Bluefy</b> browser app. The page must be opened over https.
+  </div>
+
+  <div class="row">
+    <div class="seg" id="modes">
+      <button data-mode="0" class="active">EEG</button>
+      <button data-mode="1">ECG</button>
+      <button data-mode="2">EMG</button>
+      <button data-mode="3">RAW</button>
+    </div>
+    <label class="toggle"><input type="checkbox" id="notch" checked> 50 Hz notch</label>
+    <button id="btnSave" disabled title="This pod will start in this mode next time">Save as pod default</button>
+  </div>
+
+  <section class="card">
+    <div class="plotbar">
+      <span id="plotLabel">Signal (mV at the Pill output)</span>
+      <span class="zoom"><button id="zOut" aria-label="Zoom out">−</button> <span id="scaleLbl">auto</span> <button id="zIn" aria-label="Zoom in">+</button> <button id="zAuto">Auto</button></span>
+    </div>
+    <div class="plotwrap"><canvas id="plot"></canvas></div>
+    <div id="clipWarn" class="warnbox">Pill output saturated: check the electrodes (dry gel, loose snap, or an electrode off).</div>
+    <div class="stats">
+      <span id="stRate">— samples/s</span><span id="stLoss">lost 0 %</span><span id="stHum">50 Hz: —</span><span id="stBat" class="hidden"></span><span id="stFw"></span>
+    </div>
+  </section>
+
+  <section class="card" id="mEEG">
+    <div class="metrics">
+      <div class="metric"><div class="k">Alpha peak</div><div class="v" id="eegPeak">—<small>Hz</small></div></div>
+      <div class="metric"><div class="k">Relaxation (α / β)</div><div class="v" id="eegRatio">—</div></div>
+    </div>
+    <div class="bars">
+      <div class="bar"><span>Delta 1–4</span><div class="track"><div class="fill" id="bDelta"></div></div><span class="num" id="nDelta">—</span></div>
+      <div class="bar"><span>Theta 4–8</span><div class="track"><div class="fill" id="bTheta"></div></div><span class="num" id="nTheta">—</span></div>
+      <div class="bar"><span>Alpha 8–13</span><div class="track"><div class="fill alpha" id="bAlpha"></div></div><span class="num" id="nAlpha">—</span></div>
+      <div class="bar"><span>Beta 13–30</span><div class="track"><div class="fill" id="bBeta"></div></div><span class="num" id="nBeta">—</span></div>
+    </div>
+    <p class="note">Share of power from 1 to 30 Hz over the last 2 s. Close the eyes and relax: alpha should rise within a few seconds.</p>
+  </section>
+
+  <section class="card hidden" id="mECG">
+    <div class="metrics">
+      <div class="metric"><div class="k">Heart rate</div><div class="v" id="ecgHr">—<small>bpm</small></div></div>
+      <div class="metric"><div class="k">Last RR interval</div><div class="v" id="ecgRr">—<small>ms</small></div></div>
+      <div class="metric"><div class="k">Beats</div><div class="v" id="ecgBeats">0</div></div>
+    </div>
+    <p class="note">Beats are found from the slope of the QRS, so either electrode polarity works. Sit still for steady readings.</p>
+  </section>
+
+  <section class="card hidden" id="mEMG">
+    <div class="metrics">
+      <div class="metric"><div class="k">RMS (100 ms)</div><div class="v" id="emgRms">—<small>mV</small></div></div>
+      <div class="metric"><div class="k">Of your maximum</div><div class="v" id="emgPct">—<small>%</small></div></div>
+    </div>
+    <div class="bars"><div class="bar"><span>Effort</span><div class="track"><div class="fill" id="bEmg"></div></div><span class="num" id="nEmg">—</span></div></div>
+    <div class="row"><button id="btnMvc">Set my maximum (squeeze hard for 3 s)</button></div>
+    <p class="note">The orange trace is the RMS envelope. “Maximum” is your strongest contraction during the 3 s window.</p>
+  </section>
+
+  <section class="card hidden" id="mRAW">
+    <p class="note">RAW shows the Pill output with only its 2.5 V mid-level removed: no filters, no notch. Compare the
+      “50 Hz” figure here with the same electrodes in EEG or ECG mode to see what the filters remove.</p>
+  </section>
+
+  <section class="card">
+    <div class="row" style="margin-top:0">
+      <button id="btnRec" disabled>Start recording</button>
+      <button id="btnCsv" disabled>Download CSV</button>
+      <span class="note" id="recInfo">Nothing recorded yet.</span>
+    </div>
+  </section>
+</main>
+
+<script>
+'use strict';
+const SVC  = '6b1e0001-3c2a-4d6e-9f10-2a7c5e8b4d01';
+const DATA = '6b1e0002-3c2a-4d6e-9f10-2a7c5e8b4d01';
+const CTRL = '6b1e0003-3c2a-4d6e-9f10-2a7c5e8b4d01';
+const MODES = [
+  { name: 'EEG', fs: 500,  win: 5, card: 'mEEG' },
+  { name: 'ECG', fs: 500,  win: 5, card: 'mECG' },
+  { name: 'EMG', fs: 1000, win: 3, card: 'mEMG' },
+  { name: 'RAW', fs: 500,  win: 5, card: 'mRAW' },
+];
+const $ = (id) => document.getElementById(id);
+
+// ------------------------------------------------------------ state
+const S = {
+  device: null, ctrl: null, data: null,
+  mode: 0, notch: true, fs: 500, cfg: -1,
+  ring: null, head: 0, total: 0,         // plot buffer
+  env: null,                             // EMG envelope for the plot
+  beats: [],                             // ECG beat sample numbers
+  lastSeq: null, got: 0, lost: 0, rateSamples: 0, rateT0: performance.now(), rate: 0,
+  clipUntil: 0, rec: null, recData: [], scale: null, lastV: 0,
+};
+
+// ------------------------------------------------------------ signal processors
+function makeEEG(fs) {
+  const N = 1024, buf = new Float64Array(N); let n = 0, since = 0;
+  const win = new Float64Array(N); for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
+  const sm = { delta: 0, theta: 0, alpha: 0, beta: 0, peak: 0, ratio: 0 }; let first = true;
+  return {
+    push(v) { buf[n % N] = v; n++; since++; if (n >= N && since >= fs / 4) { since = 0; this.update(); } },
+    update() {
+      const re = new Float64Array(N), im = new Float64Array(N);
+      let mean = 0; for (let i = 0; i < N; i++) mean += buf[(n + i) % N]; mean /= N;
+      for (let i = 0; i < N; i++) re[i] = (buf[(n + i) % N] - mean) * win[i];
+      fft(re, im);
+      const df = fs / N, pw = (f0, f1) => { let s = 0; for (let k = Math.ceil(f0 / df); k * df < f1; k++) s += re[k] * re[k] + im[k] * im[k]; return s; };
+      const d = pw(1, 4), t = pw(4, 8), a = pw(8, 13), b = pw(13, 30), tot = d + t + a + b || 1;
+      let pk = 0, pkv = -1; for (let k = Math.ceil(7 / df); k * df <= 14; k++) { const p = re[k] * re[k] + im[k] * im[k]; if (p > pkv) { pkv = p; pk = k * df; } }
+      const cur = { delta: d / tot, theta: t / tot, alpha: a / tot, beta: b / tot, peak: pk, ratio: b > 0 ? a / b : 0 };
+      for (const key in sm) sm[key] = first ? cur[key] : 0.6 * sm[key] + 0.4 * cur[key];
+      first = false;
+      const pct = (x) => (100 * x).toFixed(0) + ' %', w = (x) => (100 * x).toFixed(1) + '%';
+      $('bDelta').style.width = w(sm.delta); $('nDelta').textContent = pct(sm.delta);
+      $('bTheta').style.width = w(sm.theta); $('nTheta').textContent = pct(sm.theta);
+      $('bAlpha').style.width = w(sm.alpha); $('nAlpha').textContent = pct(sm.alpha);
+      $('bBeta').style.width  = w(sm.beta);  $('nBeta').textContent  = pct(sm.beta);
+      $('eegPeak').innerHTML = sm.peak.toFixed(1) + '<small>Hz</small>';
+      $('eegRatio').textContent = sm.ratio.toFixed(2);
+    },
+    snapshot() { return { ...sm }; },
+  };
+}
+
+function makeECG(fs) {
+  // slope -> square -> 150 ms moving average -> adaptive threshold with a 250 ms refractory period
+  const d = [0, 0], W = Math.round(0.15 * fs), mwiBuf = new Float64Array(W);
+  let mwiSum = 0, i = 0, peakEnv = 0, above = false, lastBeat = -1e9, rr = [];
+  const decay = Math.pow(0.5, 1 / (3 * fs));   // the peak envelope halves in 3 s
+  const out = { hr: 0, rr: 0, beats: 0 };
+  return {
+    push(v) {
+      const slope = v - d[1]; d[1] = d[0]; d[0] = v;
+      const sq = slope * slope; mwiSum += sq - mwiBuf[i % W]; mwiBuf[i % W] = sq;
+      const mwi = mwiSum / W;
+      peakEnv = Math.max(mwi, peakEnv * decay);
+      if (i > fs) {   // learn the level for 1 s first
+        const thr = 0.3 * peakEnv;
+        if (!above && mwi > thr && i - lastBeat > 0.25 * fs) {
+          above = true;
+          if (lastBeat > 0) {
+            const r = (i - lastBeat) / fs;
+            if (r > 0.3 && r < 2.0) { rr.push(r); if (rr.length > 5) rr.shift(); out.rr = r; }
+          }
+          lastBeat = i; out.beats++; S.beats.push(S.total);
+          if (rr.length) { const m = [...rr].sort((a, b) => a - b)[rr.length >> 1]; out.hr = 60 / m; }
+          $('ecgHr').innerHTML = (out.hr ? out.hr.toFixed(0) : '—') + '<small>bpm</small>';
+          $('ecgRr').innerHTML = (out.rr ? (out.rr * 1000).toFixed(0) : '—') + '<small>ms</small>';
+          $('ecgBeats').textContent = out.beats;
+        } else if (above && mwi < 0.5 * thr) above = false;
+      }
+      i++;
+    },
+    snapshot() { return { ...out }; },
+  };
+}
+
+function makeEMG(fs) {
+  const W = Math.round(0.1 * fs), sq = new Float64Array(W); let sum = 0, i = 0, rms = 0, mvc = 0, cal = 0, calMax = 0, shown = 0;
+  return {
+    push(v) {
+      const s = v * v; sum += s - sq[i % W]; sq[i % W] = s; i++;
+      rms = Math.sqrt(Math.max(sum, 0) / W);
+      if (cal > 0) { calMax = Math.max(calMax, rms); if (--cal === 0) { mvc = calMax; $('btnMvc').textContent = 'Set my maximum again'; } }
+      if (S.env) S.env[S.head] = rms;
+      if (i - shown >= fs / 10) { shown = i;
+        $('emgRms').innerHTML = rms.toFixed(rms < 10 ? 1 : 0) + '<small>mV</small>';
+        const pct = mvc > 0 ? Math.min(100, 100 * rms / mvc) : null;
+        $('emgPct').innerHTML = (pct === null ? '—' : pct.toFixed(0)) + '<small>%</small>';
+        $('bEmg').style.width = (pct === null ? 0 : pct) + '%'; $('nEmg').textContent = pct === null ? '—' : pct.toFixed(0) + ' %';
+      }
+    },
+    calibrate() { cal = 3 * fs; calMax = 0; $('btnMvc').textContent = 'Squeeze now…'; },
+    snapshot() { return { rms, mvc }; },
+  };
+}
+
+function makeHum(fs) {  // 50 Hz amplitude over the last second (Goertzel, an exact number of cycles)
+  const N = fs, buf = new Float64Array(N); let n = 0, amp = 0;
+  return {
+    push(v) { buf[n % N] = v; n++; if (n % (fs / 2) === 0 && n >= N) {
+      const w = 2 * Math.PI * 50 / fs, c = 2 * Math.cos(w); let s1 = 0, s2 = 0;
+      for (let k = 0; k < N; k++) { const s0 = buf[(n + k) % N] + c * s1 - s2; s2 = s1; s1 = s0; }
+      amp = 2 * Math.sqrt(Math.max(s1 * s1 + s2 * s2 - c * s1 * s2, 0)) / N;
+      $('stHum').textContent = '50 Hz: ' + (amp < 10 ? amp.toFixed(2) : amp.toFixed(0)) + ' mV';
+    } },
+    snapshot() { return { amp }; },
+  };
+}
+
+function fft(re, im) {  // in-place radix-2
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let bit = n >> 1; for (; j & bit; bit >>= 1) j ^= bit; j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) { let cr = 1, ci = 0;
+      for (let j = 0; j < len / 2; j++) {
+        const a = i + j, b = a + len / 2, tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      } } }
+}
+
+let P = {};
+function resetProcessing(mode, notch) {
+  S.mode = mode; S.notch = notch; S.fs = MODES[mode].fs;
+  const len = MODES[mode].fs * MODES[mode].win;
+  S.ring = new Float32Array(len); S.env = mode === 2 ? new Float32Array(len) : null;
+  S.head = 0; S.total = 0; S.beats = []; S.scale = null; S.autoRange = null;
+  P = { hum: makeHum(S.fs) };
+  if (mode === 0) P.eeg = makeEEG(S.fs);
+  if (mode === 1) P.ecg = makeECG(S.fs);
+  if (mode === 2) P.emg = makeEMG(S.fs);
+  document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('active', +b.dataset.mode === mode));
+  $('notch').checked = notch;
+  MODES.forEach((m) => $(m.card).classList.toggle('hidden', m.name !== MODES[mode].name));
+  $('btnMvc').textContent = 'Set my maximum (squeeze hard for 3 s)';
+  $('stHum').textContent = '50 Hz: —';
+  if (mode === 1) { $('ecgHr').innerHTML = '—<small>bpm</small>'; $('ecgRr').innerHTML = '—<small>ms</small>'; $('ecgBeats').textContent = '0'; }
+  $('plotLabel').textContent = MODES[mode].name + (mode === 3 ? ' (unfiltered)' : notch ? ' · notch on' : ' · notch off') + ' — mV at the Pill output';
+  updateScaleLabel();
+}
+
+function pushSample(v, clip, filled) {
+  S.lastV = v;
+  S.ring[S.head] = v;
+  if (P.eeg) P.eeg.push(v);
+  if (P.ecg) P.ecg.push(v);
+  if (P.emg) P.emg.push(v);
+  P.hum.push(v);
+  S.head = (S.head + 1) % S.ring.length; S.total++;
+  if (S.rec) S.recData.push((S.total / S.fs).toFixed(4) + ',' + v.toFixed(1) + ',' + (clip ? 1 : 0) + ',' + (filled ? 1 : 0));
+}
+
+// ------------------------------------------------------------ packets
+function onPacket(dv) {
+  if (dv.byteLength < 4) return;
+  const seq = dv.getUint16(0, true), flags = dv.getUint8(2), count = dv.getUint8(3);
+  const mode = flags & 3, notch = (flags & 4) !== 0, clip = (flags & 8) !== 0;
+  const cfg = flags & 7;
+  if (cfg !== S.cfg) { S.cfg = cfg; resetProcessing(mode, notch); S.lastSeq = null; if (S.rec) stopRec(); }
+  const n = Math.min(count, (dv.byteLength - 4) >> 1);
+  if (S.lastSeq !== null) {
+    const gap = (seq - S.lastSeq - 1) & 0xffff;
+    if (gap > 0 && gap <= 250) {   // lost packets: hold the last value so the time axis (and heart rate) stays right
+      S.lost += gap;
+      for (let k = 0; k < gap * n; k++) pushSample(S.lastV, false, true);
+    } else if (gap > 250 && gap < 0x8000) {
+      S.lost += gap; resetProcessing(mode, notch);
+    }
+  }
+  S.lastSeq = seq; S.got++;
+  if (clip) S.clipUntil = performance.now() + 800;
+  for (let i = 0; i < n; i++) pushSample(dv.getInt16(4 + 2 * i, true) / 10, clip, false);
+  S.rateSamples += n;
+}
+
+// ------------------------------------------------------------ Bluetooth
+async function connect() {
+  try {
+    if (!S.device) {
+      S.device = await navigator.bluetooth.requestDevice({ filters: [{ services: [SVC] }, { namePrefix: 'ExG-Pod' }], optionalServices: [SVC, 'battery_service'] });
+      S.device.addEventListener('gattserverdisconnected', onDisconnected);
+    }
+    setConn('Connecting…', false);
+    const server = await S.device.gatt.connect();
+    const svc = await server.getPrimaryService(SVC);
+    S.ctrl = await svc.getCharacteristic(CTRL);
+    S.data = await svc.getCharacteristic(DATA);
+    try {
+      const st = await S.ctrl.readValue();
+      if (st.byteLength >= 5) $('stFw').textContent = 'firmware v' + (st.getUint8(4) / 10).toFixed(1);
+    } catch (e) { /* older firmware: no state to read */ }
+    S.data.addEventListener('characteristicvaluechanged', (ev) => onPacket(ev.target.value));
+    await S.data.startNotifications();
+    await startBattery(server);
+    S.lastSeq = null; S.got = 0; S.lost = 0;
+    setConn(S.device.name || 'ExG Pod', true);
+  } catch (e) {
+    setConn(e && e.name === 'NotFoundError' ? 'Not connected' : 'Connection failed: ' + (e.message || e), false);
+  }
+}
+// Battery level: standard Battery Service. The nRF52840 firmware (v1.4) has it; the ESP32 firmware does not.
+async function startBattery(server) {
+  const el = $('stBat'); el.classList.add('hidden');
+  try {
+    const bs = await server.getPrimaryService('battery_service');
+    const ch = await bs.getCharacteristic('battery_level');
+    const show = (dv) => {
+      const p = dv.getUint8(0);
+      el.textContent = 'battery ' + p + ' %' + (p <= 15 ? ' — charge soon' : '');
+      el.classList.toggle('low', p <= 15); el.classList.remove('hidden');
+    };
+    show(await ch.readValue());
+    if (ch.properties && ch.properties.notify) {
+      ch.addEventListener('characteristicvaluechanged', (ev) => show(ev.target.value));
+      await ch.startNotifications();
+    }
+  } catch (e) { /* no battery service on this pod */ }
+}
+function onDisconnected() { setConn('Disconnected — tap Reconnect', false); }
+function setConn(text, on) {
+  $('conn').textContent = text; $('dot').classList.toggle('on', on);
+  $('btnConnect').textContent = on ? 'Disconnect' : (S.device ? 'Reconnect' : 'Connect');
+  $('btnSave').disabled = !on; $('btnRec').disabled = !on;
+}
+async function sendCtrl(mode, notch, save) {
+  if (!S.ctrl) { resetProcessing(mode, notch); return; }
+  const b = new Uint8Array([mode, notch ? 1 : 0, save ? 1 : 0]);
+  try { if (S.ctrl.writeValueWithResponse) await S.ctrl.writeValueWithResponse(b); else await S.ctrl.writeValue(b); }
+  catch (e) { setConn('Write failed: ' + (e.message || e), !!(S.device && S.device.gatt.connected)); }
+}
+
+// ------------------------------------------------------------ recording
+function startRec() {
+  S.rec = { mode: MODES[S.mode].name, notch: S.notch, fs: S.fs, start: new Date() };
+  S.recData = []; $('btnRec').textContent = 'Stop recording'; $('btnCsv').disabled = true;
+}
+function stopRec() {
+  if (!S.rec) return;
+  S.lastRec = { ...S.rec, rows: S.recData };
+  S.rec = null; $('btnRec').textContent = 'Start recording'; $('btnCsv').disabled = S.lastRec.rows.length === 0;
+  $('recInfo').textContent = S.lastRec.rows.length ? `${(S.lastRec.rows.length / S.lastRec.fs).toFixed(1)} s of ${S.lastRec.mode} ready to download.` : 'Nothing recorded.';
+}
+function downloadCsv() {
+  const r = S.lastRec; if (!r) return;
+  const stamp = r.start.toISOString().replace(/[:T]/g, '-').slice(0, 19);
+  const head = `# ExG Pod recording\n# mode,${r.mode}\n# notch,${r.notch ? 'on' : 'off'}\n# sample_rate_hz,${r.fs}\n# start,${r.start.toISOString()}\n# value = mV at the Pill output; lost = 1 where a Bluetooth packet was lost and the last value was held\n`;
+  const blob = new Blob([head + 't_s,value_mV,clipped,lost\n' + r.rows.join('\n') + '\n'], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `exg_${r.mode.toLowerCase()}_${stamp}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// ------------------------------------------------------------ plot
+const cv = $('plot'), ctx = cv.getContext('2d');
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function updateScaleLabel() { $('scaleLbl').textContent = S.scale ? '±' + fmt(S.scale) + ' mV' : 'auto'; }
+function fmt(x) { return x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(0) : x.toFixed(1); }
+function draw() {
+  requestAnimationFrame(draw);
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  if (!S.ring) return;
+  const len = S.ring.length, have = Math.min(S.total, len);
+  // y range: manual, or robust auto-range that eases toward the signal's extremes
+  let range = S.scale;
+  if (!range) {
+    let mx = 1; for (let i = 0; i < have; i++) { const v = Math.abs(S.ring[(S.head - have + i + len) % len]); if (v > mx) mx = v; }
+    S.autoRange = S.autoRange ? (mx > S.autoRange ? mx : 0.97 * S.autoRange + 0.03 * mx) : mx;
+    range = S.autoRange * 1.1;
+  }
+  const y = (v) => h / 2 - (v / range) * (h / 2 - 6);
+  // grid
+  ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1; ctx.beginPath();
+  const secs = MODES[S.mode].win; for (let s = 1; s < secs; s++) { const x = (s / secs) * w; ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+  ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+  ctx.fillStyle = css('--muted'); ctx.font = '11px system-ui'; ctx.fillText('+' + fmt(range) + ' mV', 4, 12); ctx.fillText('−' + fmt(range) + ' mV', 4, h - 4);
+  // trace (newest sample at the right edge)
+  const step = Math.max(1, Math.floor(have / (w * 2)));
+  const trace = (arr, color, width) => {
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
+    for (let i = 0; i < have; i += step) {
+      const x = w - ((have - i) / len) * w, v = arr[(S.head - have + i + len) % len];
+      if (i === 0) ctx.moveTo(x, y(v)); else ctx.lineTo(x, y(v));
+    } ctx.stroke();
+  };
+  trace(S.ring, css('--trace'), 1.4);
+  if (S.env) trace(S.env, css('--trace2'), 2);
+  if (S.mode === 1) {  // beat markers
+    ctx.fillStyle = css('--trace2');
+    S.beats = S.beats.filter((b) => S.total - b < len);
+    for (const b of S.beats) { const x = w - ((S.total - b) / len) * w; ctx.beginPath(); ctx.arc(x, h - 18, 3.5, 0, 2 * Math.PI); ctx.fill(); }
+  }
+}
+
+// ------------------------------------------------------------ status line
+setInterval(() => {
+  const now = performance.now(), dt = (now - S.rateT0) / 1000;
+  if (dt >= 1) { S.rate = S.rateSamples / dt; S.rateSamples = 0; S.rateT0 = now;
+    $('stRate').textContent = S.rate.toFixed(0) + ' samples/s';
+    const tot = S.got + S.lost; $('stLoss').textContent = 'lost ' + (tot ? (100 * S.lost / tot).toFixed(1) : '0') + ' %'; }
+  $('clipWarn').classList.toggle('show', now < S.clipUntil);
+  if (S.rec) $('recInfo').innerHTML = '<span class="rec">● REC</span> ' + (S.recData.length / S.fs).toFixed(1) + ' s';
+}, 250);
+
+// ------------------------------------------------------------ UI wiring
+if (!navigator.bluetooth) { $('unsupported').classList.remove('hidden'); $('btnConnect').disabled = true; }
+$('btnConnect').onclick = () => {
+  if (S.device && S.device.gatt.connected) { S.device.gatt.disconnect(); return; }
+  connect();
+};
+document.querySelectorAll('#modes button').forEach((b) => { b.onclick = () => sendCtrl(+b.dataset.mode, $('notch').checked, false); });
+$('notch').onchange = () => sendCtrl(S.mode, $('notch').checked, false);
+$('btnSave').onclick = async () => { await sendCtrl(S.mode, S.notch, true); $('btnSave').textContent = 'Saved ✓'; setTimeout(() => ($('btnSave').textContent = 'Save as pod default'), 1500); };
+$('btnRec').onclick = () => (S.rec ? stopRec() : startRec());
+$('btnCsv').onclick = downloadCsv;
+$('btnMvc').onclick = () => P.emg && P.emg.calibrate();
+const zoom = (f) => { const cur = S.scale || (S.autoRange ? S.autoRange * 1.1 : 100); S.scale = Math.max(0.5, cur * f); updateScaleLabel(); };
+$('zIn').onclick = () => zoom(0.5); $('zOut').onclick = () => zoom(2); $('zAuto').onclick = () => { S.scale = null; updateScaleLabel(); };
+resetProcessing(0, true);
+requestAnimationFrame(draw);
+window.__exg = { S, get P() { return P; } };   // for automated tests
+</script>
+</body>
+</html>
